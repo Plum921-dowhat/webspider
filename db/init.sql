@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS articles (
     source_type   TEXT NOT NULL,
     language      TEXT,
     quality_score NUMERIC,
-    content_hash  BIGINT
+    content_hash  NUMERIC(20)
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles (published_at DESC);
