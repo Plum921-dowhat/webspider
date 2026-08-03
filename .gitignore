@@ -1,0 +1,12 @@
+# Go
+go-crawler/bin/
+*.exe
+
+# Python
+py-processor/__pycache__/
+py-processor/.venv/
+*.pyc
+
+# Data
+*.jsonl
+corpus/

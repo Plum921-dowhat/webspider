@@ -1,0 +1,4 @@
+redis>=5.0.0
+psycopg2-binary>=2.9.9
+trafilatura>=1.6.0
+langdetect>=1.0.9

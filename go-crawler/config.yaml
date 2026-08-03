@@ -1,0 +1,13 @@
+redis:
+  addr: "localhost:6379"
+  password: ""
+  stream: "articles"
+  consumer_group: "py"
+
+crawler:
+  source: "devto"
+  per_page: 30
+  max_concurrency: 8
+  rate_per_sec: 5
+  since_hours: 24        # incremental window; 0 = fetch all
+  max_pages: 0           # 0 = unbounded (stop on empty page or cursor)
