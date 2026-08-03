@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>爬虫结果看板</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    :root { --bg:#0f1117; --card:#1a1d27; --fg:#e6e6e6; --muted:#9aa0ac; --accent:#4f8cff; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+           background:var(--bg); color:var(--fg); padding:20px; }
+    h1 { font-size:20px; margin:0 0 16px; }
+    .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:16px; }
+    .card { background:var(--card); border-radius:12px; padding:18px; }
+    .card .v { font-size:28px; font-weight:700; color:var(--accent); }
+    .card .l { color:var(--muted); font-size:13px; margin-top:4px; }
+    .charts { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+    .chart { background:var(--card); border-radius:12px; padding:12px; height:320px; }
+    .panel { background:var(--card); border-radius:12px; padding:16px; }
+    .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+    input, select, button { background:#11141c; color:var(--fg); border:1px solid #2a2f3a;
+                            border-radius:8px; padding:8px 10px; font-size:14px; }
+    button { cursor:pointer; background:var(--accent); border-color:var(--accent); color:#fff; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #2a2f3a; vertical-align:top; }
+    th { color:var(--muted); font-weight:600; }
+    tr:hover td { background:#11141c; }
+    a { color:var(--accent); word-break:break-all; }
+    .preview { color:var(--muted); max-width:520px; }
+    .pager { display:flex; gap:10px; align-items:center; margin-top:12px; }
+    .toggle { background:none; border:none; color:var(--accent); padding:0; font-size:12px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <h1>爬虫结果看板</h1>
+
+  <div class="cards">
+    <div class="card"><div class="v" id="k-total">-</div><div class="l">文章总数</div></div>
+    <div class="card"><div class="v" id="k-langs">-</div><div class="l">语言数</div></div>
+    <div class="card"><div class="v" id="k-24">-</div><div class="l">近 24h 新增</div></div>
+  </div>
+
+  <div class="charts">
+    <div class="chart" id="pie"></div>
+    <div class="chart" id="line"></div>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <input id="q" placeholder="搜 URL / 正文关键词" style="min-width:240px" />
+      <select id="lang"><option value="">全部语言</option></select>
+      <button id="search">搜索</button>
+      <button id="reset">重置</button>
+    </div>
+    <table>
+      <thead><tr><th>ID</th><th>标题</th><th>语言</th><th>长度</th><th>URL</th><th>时间</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="pager">
+      <button id="prev">上一页</button>
+      <span id="pageinfo"></span>
+      <button id="next">下一页</button>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const pie = echarts.init($("pie"), "dark");
+const line = echarts.init($("line"), "dark");
+let page = 1;
+
+async function loadSummary() {
+  const s = await (await fetch("/api/summary")).json();
+  $("k-total").textContent = s.total;
+  $("k-langs").textContent = s.languages;
+  $("k-24").textContent = s.last_24h;
+}
+
+async function loadPie() {
+  const d = await (await fetch("/api/lang-dist")).json();
+  pie.setOption({
+    backgroundColor: "transparent",
+    title: { text: "语言分布", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { trigger: "item" },
+    series: [{
+      type: "pie", radius: ["40%", "70%"], center: ["50%", "55%"],
+      data: d.map(x => ({ name: x.language || "unknown", value: x.count })),
+      label: { color: "#e6e6e6" }
+    }]
+  });
+}
+
+async function loadLine() {
+  const d = await (await fetch("/api/daily")).json();
+  line.setOption({
+    backgroundColor: "transparent",
+    title: { text: "每日入库", left: "center", textStyle: { fontSize: 14 } },
+    tooltip: { trigger: "axis" },
+    grid: { left: 40, right: 20, top: 40, bottom: 30 },
+    xAxis: { type: "category", data: d.map(x => x.day), axisLabel: { color: "#9aa0ac" } },
+    yAxis: { type: "value", axisLabel: { color: "#9aa0ac" }, splitLine: { lineStyle: { color: "#2a2f3a" } } },
+    series: [{ type: "line", smooth: true, areaStyle: {}, data: d.map(x => x.count) }]
+  });
+}
+
+async function loadLangOptions() {
+  const d = await (await fetch("/api/lang-dist")).json();
+  const sel = $("lang");
+  d.forEach(x => {
+    const o = document.createElement("option");
+    o.value = x.language || ""; o.textContent = (x.language || "unknown") + " (" + x.count + ")";
+    sel.appendChild(o);
+  });
+}
+
+function esc(s) { return (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+async function loadArticles() {
+  const q = $("q").value.trim();
+  const lang = $("lang").value;
+  const params = new URLSearchParams({ page, page_size: 20 });
+  if (q) params.set("q", q);
+  if (lang) params.set("lang", lang);
+  const res = await (await fetch("/api/articles?" + params)).json();
+  const tb = $("rows");
+  tb.innerHTML = "";
+  res.items.forEach(it => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${it.id}</td>` +
+      `<td>${esc(it.title) || "-"}</td>` +
+      `<td>${esc(it.language) || "-"}</td>` +
+      `<td>${it.md_len}</td>` +
+      `<td><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.url)}</a></td>` +
+      `<td>${it.created_at || "-"}</td>` +
+      `<td><button class="toggle">预览</button></td>`;
+    const tdPreview = document.createElement("tr");
+    tdPreview.style.display = "none";
+    tdPreview.innerHTML = `<td colspan="7" class="preview">${esc(it.preview)}</td>`;
+    tr.querySelector(".toggle").onclick = () => {
+      tdPreview.style.display = tdPreview.style.display === "none" ? "table-row" : "none";
+    };
+    tb.appendChild(tr);
+    tb.appendChild(tdPreview);
+  });
+  $("pageinfo").textContent = `第 ${res.page} 页 / 共 ${Math.max(1, Math.ceil(res.total / res.page_size))} 页（${res.total} 条）`;
+  $("prev").disabled = res.page <= 1;
+  $("next").disabled = res.page * res.page_size >= res.total;
+}
+
+$("search").onclick = () => { page = 1; loadArticles(); };
+$("reset").onclick = () => { $("q").value = ""; $("lang").value = ""; page = 1; loadArticles(); };
+$("prev").onclick = () => { if (page > 1) { page--; loadArticles(); } };
+$("next").onclick = () => { page++; loadArticles(); };
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") { page = 1; loadArticles(); } });
+
+(async () => {
+  await Promise.all([loadSummary(), loadPie(), loadLine(), loadLangOptions()]);
+  await loadArticles();
+})();
+window.addEventListener("resize", () => { pie.resize(); line.resize(); });
+</script>
+</body>
+</html>
