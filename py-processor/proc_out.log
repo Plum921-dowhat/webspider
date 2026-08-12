@@ -20,3 +20,5 @@ INFO:     127.0.0.1:56467 - "GET /api/articles?page=1&page_size=20 HTTP/1.1" 200
 INFO:     127.0.0.1:64725 - "GET /api/summary HTTP/1.1" 200 OK
 INFO:     127.0.0.1:64729 - "GET /api/lang-dist HTTP/1.1" 200 OK
 INFO:     127.0.0.1:64731 - "GET /api/daily HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64732 - "GET /api/lang-dist HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64732 - "GET /api/articles?page=1&page_size=20 HTTP/1.1" 200 OK

@@ -20,28 +20,33 @@ type pageResult struct {
 // It stops when a page comes back empty or older than the since cursor, or when
 // maxPages is reached, or when ctx is cancelled.
 type Scheduler struct {
-	src      source.Source
-	prod     *stream.Producer
-	perPage  int
-	maxPages int
-	since    time.Time
-	limiter  *rate.Limiter
+	src         source.Source
+	prod        *stream.Producer
+	perPage     int
+	maxPages    int
+	concurrency int
+	since       time.Time
+	limiter     *rate.Limiter
 }
 
-func New(src source.Source, prod *stream.Producer, perPage, maxPages int, since time.Time, ratePerSec int) *Scheduler {
+func New(src source.Source, prod *stream.Producer, perPage, maxPages, concurrency int, since time.Time, ratePerSec int) *Scheduler {
+	if concurrency <= 0 {
+		concurrency = 8
+	}
 	return &Scheduler{
-		src:      src,
-		prod:     prod,
-		perPage:  perPage,
-		maxPages: maxPages,
-		since:    since,
-		limiter:  rate.NewLimiter(rate.Limit(ratePerSec), ratePerSec),
+		src:         src,
+		prod:        prod,
+		perPage:     perPage,
+		maxPages:    maxPages,
+		concurrency: concurrency,
+		since:       since,
+		limiter:     rate.NewLimiter(rate.Limit(ratePerSec), ratePerSec),
 	}
 }
 
 func (s *Scheduler) Run(ctx context.Context) error {
-	sem := make(chan struct{}, 8) // bounded concurrency
-	results := make(chan pageResult, 8)
+	sem := make(chan struct{}, s.concurrency) // bounded concurrency
+	results := make(chan pageResult, s.concurrency)
 	var wg sync.WaitGroup
 
 	nextPage := 1

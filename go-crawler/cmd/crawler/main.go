@@ -36,7 +36,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	s := scheduler.New(src, prod, cfg.Crawler.PerPage, cfg.Crawler.MaxPages, cfg.Since(), cfg.Crawler.RatePerSec)
+	s := scheduler.New(src, prod, cfg.Crawler.PerPage, cfg.Crawler.MaxPages, cfg.Crawler.MaxConcurrency, cfg.Since(), cfg.Crawler.RatePerSec)
 
 	start := time.Now()
 	if err := s.Run(ctx); err != nil {
