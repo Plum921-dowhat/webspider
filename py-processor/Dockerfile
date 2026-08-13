@@ -6,7 +6,9 @@ ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 WORKDIR /build
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# apt 换清华源（deb.debian.org 在国内不稳定）
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
         gcc python3-dev libpq-dev libxml2-dev libxslt1-dev \
     && rm -rf /var/lib/apt/lists/*
 
