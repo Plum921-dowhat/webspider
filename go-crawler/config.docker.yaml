@@ -1,0 +1,13 @@
+redis:
+  addr: "redis:6379"
+  password: ""
+  stream: "articles"
+  consumer_group: "py"
+
+crawler:
+  source: "devto"
+  per_page: 100
+  max_concurrency: 8
+  rate_per_sec: 3
+  since_hours: 0
+  max_pages: 0

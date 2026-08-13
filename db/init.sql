@@ -20,10 +20,3 @@ CREATE TABLE IF NOT EXISTS articles (
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles (published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_source    ON articles (source_type);
 CREATE INDEX IF NOT EXISTS idx_articles_tags      ON articles USING GIN (tags);
-
--- Dedup tracking for crawler side (already-in-pipeline URLs)
-CREATE TABLE IF NOT EXISTS crawled_urls (
-    url_hash   CHAR(64) PRIMARY KEY,
-    seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    source_type TEXT NOT NULL
-);

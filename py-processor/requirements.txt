@@ -1,7 +1,7 @@
 redis==5.0.0
-psycopg2-binary>=2.9.9
-requests>=2.31.0
-trafilatura>=2.2.0
+psycopg2-binary==2.9.9
+requests==2.32.3
+trafilatura==1.12.2
 langdetect==1.0.9
-fastapi>=0.115.0
+fastapi==0.115.0
 uvicorn==0.32.0

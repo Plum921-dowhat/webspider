@@ -10,7 +10,7 @@ def get_conn():
 
 _INSERT = """
 INSERT INTO articles
-    (url, url_hash, title, content_md, author, published_at, tags, source_type, language, content_hash)
+    (url, url_hash, title, content_md, author, published_at, tags, source_type, language, content_hash, quality_score)
 VALUES %s
 ON CONFLICT (url_hash) DO NOTHING
 """

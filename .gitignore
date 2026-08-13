@@ -1,12 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.log
+*.egg-info/
+.venv/
+venv/
+
 # Go
 go-crawler/bin/
 *.exe
 
-# Python
-py-processor/__pycache__/
-py-processor/.venv/
-*.pyc
+# Env / secrets
+.env
 
-# Data
-*.jsonl
-corpus/
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Misc
+*.tmp

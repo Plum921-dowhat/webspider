@@ -108,6 +108,7 @@ def process_batch(r, conn, resp, seen_hashes, ack_even_on_fail=False):
             article.get("source_type", "devto"),
             lang,
             chash,
+            float(meta.get("quality_score", 0.0)),
         ))
 
     stored = 0

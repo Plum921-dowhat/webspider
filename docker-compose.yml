@@ -1,11 +1,14 @@
 services:
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   postgres:
     image: postgres:16-alpine
@@ -13,11 +16,49 @@ services:
       POSTGRES_USER: crawler
       POSTGRES_PASSWORD: crawler_pwd
       POSTGRES_DB: corpus
-    ports:
-      - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler -d corpus"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  crawler:
+    build: ./go-crawler
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      STREAM: articles
+
+  processor:
+    build: ./py-processor
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      STREAM: articles
+      CONSUMER_GROUP: py
+      CONSUMER_NAME: proc-1
+      PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
+      MIN_CONTENT_LEN: "100"
+
+  dashboard:
+    build: ./py-processor
+    command: ["uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
 
 volumes:
   redis-data:
