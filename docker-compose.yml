@@ -2,6 +2,7 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
     volumes:
       - redis-data:/data
     healthcheck:
@@ -12,6 +13,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: crawler
       POSTGRES_PASSWORD: crawler_pwd
@@ -27,14 +29,41 @@ services:
 
   crawler:
     build: ./go-crawler
+    restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
+
+  crawler-hashnode:
+    build: ./go-crawler
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["/app/crawler", "/app/config.hashnode.docker.yaml"]
+
+  crawler-rss:
+    build: ./go-crawler
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    # ENTRYPOINT is the crawler binary; command only selects the config file.
+    command: ["/app/config.rss.docker.yaml"]
+
+  crawler-stackexchange:
+    build: ./go-crawler
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["/app/config.stackexchange.docker.yaml"]
     environment:
-      STREAM: articles
+      SE_API_KEY: ${SE_API_KEY:-}
 
   processor:
     build: ./py-processor
+    restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
@@ -43,13 +72,32 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       STREAM: articles
+      DLQ_STREAM: articles_dlq
       CONSUMER_GROUP: py
       CONSUMER_NAME: proc-1
       PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
       MIN_CONTENT_LEN: "100"
 
+  monitor:
+    build: ./py-processor
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: ["python", "monitor.py"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      STREAM: articles
+      DLQ_STREAM: articles_dlq
+      CONSUMER_GROUP: py
+      PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
+      MONITOR_INTERVAL: "60"
+
   dashboard:
     build: ./py-processor
+    restart: unless-stopped
     command: ["uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
       postgres:
@@ -57,6 +105,9 @@ services:
     environment:
       PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
       REDIS_URL: redis://redis:6379/0
+      STREAM: articles
+      DLQ_STREAM: articles_dlq
+      CONSUMER_GROUP: py
     ports:
       - "8000:8000"
 
