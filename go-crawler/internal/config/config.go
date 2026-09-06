@@ -31,6 +31,9 @@ type CrawlerConfig struct {
 	// UserAgent overrides the bot UA sent to upstreams; CRAWLER_USER_AGENT
 	// env wins. Fill in a real contact address for long-running deployments.
 	UserAgent string `yaml:"user_agent"`
+	// UseCursor starts each run from the per-source Redis cursor (newest seen
+	// published_at) instead of re-scanning the full since_hours window.
+	UseCursor bool `yaml:"use_cursor"`
 
 	// --- source-specific options ---
 

@@ -175,6 +175,9 @@ def pipeline():
         "by_source": {
             k: int(v) for k, v in r.hgetall("metrics:articles:stored_by_source").items()
         },
+        "rejected_by_source": {
+            k: int(v) for k, v in r.hgetall("metrics:articles:rejected_by_source").items()
+        },
         "produced_by_source": {
             k: int(v) for k, v in r.hgetall("metrics:articles:produced_by_source").items()
         },

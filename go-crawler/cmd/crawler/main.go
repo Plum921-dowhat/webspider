@@ -50,18 +50,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	s := scheduler.New(src, prod, cfg.Crawler.PerPage, cfg.Crawler.MaxPages, cfg.Crawler.MaxConcurrency,
-		cfg.Since(), cfg.Crawler.RatePerSec, cfg.Crawler.MaxPageFailures)
+	s := buildScheduler(cfg, prod, src)
 
 	interval := time.Duration(cfg.Crawler.IntervalMinutes) * time.Minute
 	if interval <= 0 {
-		runOnce(ctx, s)
+		runOnce(ctx, cfg, prod, s)
 		return
 	}
 
 	log.Printf("crawler daemon started: interval=%s since_hours=%d", interval, cfg.Crawler.SinceHours)
 	for {
-		runOnce(ctx, s)
+		// rebuild the scheduler every cycle: with use_cursor the window
+		// start advances after each successful run
+		s = buildScheduler(cfg, prod, src)
+		runOnce(ctx, cfg, prod, s)
 		if ctx.Err() != nil {
 			return
 		}
@@ -74,6 +76,33 @@ func main() {
 	}
 }
 
+// resolveSince picks the incremental window start for a run: the per-source
+// Redis cursor (newest seen published_at, minus a small overlap) when
+// available, else the config's since-hours window. The cursor covers sleep
+// gaps longer than the fixed window; the overlap guards boundary articles.
+func resolveSince(base, cursor time.Time, hasCursor bool, overlap time.Duration) time.Time {
+	if !hasCursor || cursor.IsZero() {
+		return base
+	}
+	withOverlap := cursor.Add(-overlap)
+	if base.IsZero() || withOverlap.After(base) {
+		return withOverlap
+	}
+	return base
+}
+
+func buildScheduler(cfg *config.Config, prod *stream.Producer, src source.Source) *scheduler.Scheduler {
+	base := cfg.Since()
+	since := base
+	if cfg.Crawler.UseCursor {
+		if cursor, ok := prod.GetCursor(context.Background(), src.Name()); ok {
+			since = resolveSince(base, cursor, true, 5*time.Minute)
+		}
+	}
+	return scheduler.New(src, prod, cfg.Crawler.PerPage, cfg.Crawler.MaxPages, cfg.Crawler.MaxConcurrency,
+		since, cfg.Crawler.RatePerSec, cfg.Crawler.MaxPageFailures)
+}
+
 func registryKeys() []string {
 	keys := make([]string, 0, len(sourceRegistry))
 	for k := range sourceRegistry {
@@ -83,7 +112,7 @@ func registryKeys() []string {
 	return keys
 }
 
-func runOnce(ctx context.Context, s *scheduler.Scheduler) {
+func runOnce(ctx context.Context, cfg *config.Config, prod *stream.Producer, s *scheduler.Scheduler) {
 	start := time.Now()
 	if err := s.Run(ctx); err != nil {
 		if ctx.Err() != nil {

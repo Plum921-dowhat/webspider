@@ -68,7 +68,8 @@ func NewProducer(cfg config.RedisConfig) (*Producer, error) {
 }
 
 // Publish atomically dedups by url_hash and enqueues JSON payload to the stream.
-// Returns published=true if the item was new.
+// Returns published=true if the item was new. New items also advance the
+// per-source cursor (newest seen published_at) used for incremental crawls.
 func (p *Producer) Publish(ctx context.Context, a source.ArticleRaw) (bool, error) {
 	hash := HashURL(a.URL)
 	payload, err := json.Marshal(a)
@@ -90,9 +91,44 @@ func (p *Producer) Publish(ctx context.Context, a source.ArticleRaw) (bool, erro
 			if err := p.rdb.HIncrBy(ctx, "metrics:articles:produced_by_source", a.SourceType, 1).Err(); err != nil {
 				log.Printf("[stream] produced_by_source metric incr failed: %v", err)
 			}
+			p.advanceCursor(ctx, a)
 		}
 	}
 	return res == 1, nil
+}
+
+// advanceCursor moves the source's cursor to a.Published only when newer
+// (RFC3339 UTC strings compare lexicographically). Lua keeps it atomic.
+func (p *Producer) advanceCursor(ctx context.Context, a source.ArticleRaw) {
+	if a.Published.IsZero() {
+		return
+	}
+	ts := a.Published.UTC().Format(time.RFC3339Nano)
+	cursorScript := redis.NewScript(`
+local cur = redis.call('HGET', KEYS[1], ARGV[1])
+if cur == false or ARGV[2] > cur then
+  redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+end
+return 1
+`)
+	if err := cursorScript.Run(ctx, p.rdb,
+		[]string{"crawler:cursor:" + p.stream}, a.SourceType, ts,
+	).Err(); err != nil {
+		log.Printf("[stream] cursor advance failed: %v", err)
+	}
+}
+
+// GetCursor returns the source's newest-seen published_at, if known.
+func (p *Producer) GetCursor(ctx context.Context, sourceName string) (time.Time, bool) {
+	v, err := p.rdb.HGet(ctx, "crawler:cursor:"+p.stream, sourceName).Result()
+	if err != nil || v == "" {
+		return time.Time{}, false
+	}
+	ts, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return ts, true
 }
 
 // RunStats is one scheduler run's summary, recorded to Redis so the monitor

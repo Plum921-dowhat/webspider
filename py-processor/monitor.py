@@ -47,6 +47,7 @@ def read_state(r):
         "stream_len": r.xlen(STREAM),
         "produced_by_source": {k: int(v) for k, v in r.hgetall("metrics:articles:produced_by_source").items()},
         "stored_by_source": {k: int(v) for k, v in r.hgetall("metrics:articles:stored_by_source").items()},
+        "rejected_by_source": {k: int(v) for k, v in r.hgetall("metrics:articles:rejected_by_source").items()},
     }
 
 
@@ -55,22 +56,25 @@ def compute_by_source(prev, cur):
     are included; negative deltas (counter resets) clamp to 0. prev=None (first
     sample) yields all-zero deltas."""
     if prev is None:
-        prev = {"produced_by_source": {}, "stored_by_source": {}}
+        prev = {"produced_by_source": {}, "stored_by_source": {}, "rejected_by_source": {}}
         zero_first = True
     else:
         zero_first = False
     sources = set(prev.get("produced_by_source", {})) | set(cur.get("produced_by_source", {})) \
-        | set(prev.get("stored_by_source", {})) | set(cur.get("stored_by_source", {}))
+        | set(prev.get("stored_by_source", {})) | set(cur.get("stored_by_source", {})) \
+        | set(prev.get("rejected_by_source", {})) | set(cur.get("rejected_by_source", {}))
     out = {}
     for src in sources:
         if zero_first:
-            out[src] = {"produced_delta": 0, "stored_delta": 0}
+            out[src] = {"produced_delta": 0, "stored_delta": 0, "rejected_delta": 0}
             continue
-        p_delta = max(0, cur.get("produced_by_source", {}).get(src, 0)
-                      - prev.get("produced_by_source", {}).get(src, 0))
-        s_delta = max(0, cur.get("stored_by_source", {}).get(src, 0)
-                      - prev.get("stored_by_source", {}).get(src, 0))
-        out[src] = {"produced_delta": p_delta, "stored_delta": s_delta}
+        def delta(key):
+            return max(0, cur.get(key, {}).get(src, 0) - prev.get(key, {}).get(src, 0))
+        out[src] = {
+            "produced_delta": delta("produced_by_source"),
+            "stored_delta": delta("stored_by_source"),
+            "rejected_delta": delta("rejected_by_source"),
+        }
     return out
 
 

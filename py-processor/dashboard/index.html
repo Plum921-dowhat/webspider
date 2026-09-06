@@ -180,12 +180,14 @@ async function loadPipeline() {
     $("pipe-error").style.display = "none";
     const sources = $("pipe-sources");
     sources.innerHTML = "";
-    const srcEntries = Object.entries(p.by_source || {}).sort((a, b) => b[1] - a[1]);
+    const stored = p.by_source || {}, rejected = p.rejected_by_source || {};
+    const srcEntries = [...new Set([...Object.keys(stored), ...Object.keys(rejected)])];
     if (srcEntries.length) {
-      srcEntries.forEach(([src, cnt]) => {
+      srcEntries.sort((a, b) => (stored[b] || 0) - (stored[a] || 0));
+      srcEntries.forEach(src => {
         const s = document.createElement("span");
         s.className = "chip";
-        s.innerHTML = `${esc(src)} <b>${cnt}</b>`;
+        s.innerHTML = `${esc(src)} <b>入库 ${stored[src] || 0}</b> / 拒绝 <b>${rejected[src] || 0}</b>`;
         sources.appendChild(s);
       });
     }

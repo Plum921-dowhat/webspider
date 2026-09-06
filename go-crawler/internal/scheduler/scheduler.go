@@ -20,13 +20,20 @@ type pageResult struct {
 	pubErrs   int
 }
 
+// Publisher is the subset of stream.Producer the scheduler depends on; an
+// interface so tests can inject a fake without Redis.
+type Publisher interface {
+	Publish(ctx context.Context, a source.ArticleRaw) (bool, error)
+	RecordRun(ctx context.Context, s stream.RunStats)
+}
+
 // Scheduler drives paginated fetching with a worker pool + rate limiter.
 // It stops when a page comes back empty or older than the since cursor, or when
 // maxPages is reached, or when too many pages failed (circuit breaker), or when
 // ctx is cancelled.
 type Scheduler struct {
 	src             source.Source
-	prod            *stream.Producer
+	prod            Publisher
 	perPage         int
 	maxPages        int
 	concurrency     int
@@ -35,7 +42,7 @@ type Scheduler struct {
 	limiter         *rate.Limiter
 }
 
-func New(src source.Source, prod *stream.Producer, perPage, maxPages, concurrency int, since time.Time, ratePerSec, maxPageFailures int) *Scheduler {
+func New(src source.Source, prod Publisher, perPage, maxPages, concurrency int, since time.Time, ratePerSec, maxPageFailures int) *Scheduler {
 	if concurrency <= 0 {
 		concurrency = 8
 	}

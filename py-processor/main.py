@@ -146,6 +146,7 @@ def process_batch(r, conn, resp, seen_hashes):
     # threads share the limiters so the aggregate QPS holds.
     htmls, gone = fetch_many([a.get("url", "") for _, a in to_fetch])
     stats = {}
+    src_rej = {}     # source_type -> rejection count (per-source quality signal)
     extracted = []   # (msg_id, article, content)
     for msg_id, article, content in direct:
         extracted.append((msg_id, article, content))
@@ -155,10 +156,12 @@ def process_batch(r, conn, resp, seen_hashes):
             # 404/410: content is definitively gone; the DLQ could never
             # recover it, so count as rejected and XACK with the batch.
             stats["not_found"] = stats.get("not_found", 0) + 1
+            src_rej[article.get("source_type", "?")] = src_rej.get(article.get("source_type", "?"), 0) + 1
             continue
         content = extract_content(htmls.get(url))
         if not content:
             stats["extract_fail"] = stats.get("extract_fail", 0) + 1
+            src_rej[article.get("source_type", "?")] = src_rej.get(article.get("source_type", "?"), 0) + 1
             push_dlq(r, msg_id, article, reason="extract_fail", detail=url)
             continue
         extracted.append((msg_id, article, content))
@@ -169,6 +172,7 @@ def process_batch(r, conn, resp, seen_hashes):
         keep, reason, meta = assess(content)
         if not keep:
             stats[reason] = stats.get(reason, 0) + 1
+            src_rej[article.get("source_type", "?")] = src_rej.get(article.get("source_type", "?"), 0) + 1
             continue
 
         # language detection on code-stripped text avoids misclassifying
@@ -233,6 +237,8 @@ def process_batch(r, conn, resp, seen_hashes):
         pipe.incrby("metrics:articles:rejected", sum(stats.values()))
         for reason, cnt in stats.items():
             pipe.hincrby("metrics:articles:rejected_by_reason", reason, cnt)
+        for src, cnt in src_rej.items():
+            pipe.hincrby("metrics:articles:rejected_by_source", src, cnt)
         pipe.execute()
         logger.info("rejected=%s", stats)
     if ids_to_ack:
