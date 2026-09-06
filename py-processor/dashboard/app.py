@@ -14,7 +14,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from queries import articles, daily, lang_distribution, summary
+from queries import articles, daily, health, lang_distribution, pipeline, source_distribution, summary
 
 app = FastAPI(title="Crawler Dashboard", version="1.0.0")
 
@@ -48,14 +48,43 @@ def api_daily(limit: int = Query(30, ge=1, le=365)):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/api/pipeline")
+def api_pipeline():
+    """Crawler pipeline health: produced/stored/rejected counters, DLQ and
+    stream lengths, pending messages. 502 when Redis is unreachable so the
+    frontend can show the panel as degraded instead of silently stale."""
+    try:
+        return pipeline()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"redis unavailable: {exc}") from exc
+
+
+@app.get("/api/source-dist")
+def api_source_dist():
+    try:
+        return source_distribution()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/health")
+def api_health(hours: int = Query(24, ge=1, le=168)):
+    """Crawler activity monitoring: per-source run heartbeats + snapshot series."""
+    try:
+        return health(hours)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/api/articles")
 def api_articles(
     lang: str | None = Query(None),
     q: str | None = Query(None),
+    source: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
     try:
-        return articles(lang=lang, q=q, page=page, page_size=page_size)
+        return articles(lang=lang, q=q, source=source, page=page, page_size=page_size)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -29,7 +29,11 @@
     tr:hover td { background:#11141c; }
     a { color:var(--accent); word-break:break-all; }
     .preview { color:var(--muted); max-width:520px; }
+    .chip { background:#11141c; border:1px solid #2a2f3a; border-radius:999px; padding:4px 10px; font-size:12px; color:var(--muted); }
+    .chip b { color:var(--fg); margin-left:4px; }
     .pager { display:flex; gap:10px; align-items:center; margin-top:12px; }
+    .pager-go { margin-left:auto; display:flex; gap:8px; align-items:center; }
+    .pager-go input { width:80px; text-align:center; }
     .toggle { background:none; border:none; color:var(--accent); padding:0; font-size:12px; cursor:pointer; }
   </style>
 </head>
@@ -42,26 +46,64 @@
     <div class="card"><div class="v" id="k-24">-</div><div class="l">近 24h 新增</div></div>
   </div>
 
+  <div class="toolbar" style="margin-bottom:8px;">
+    <button id="pie-toggle" style="background:#11141c;border:1px solid #2a2f3a;color:var(--fg);">分布维度: 语言 ⬄ 来源</button>
+  </div>
   <div class="charts">
     <div class="chart" id="pie"></div>
     <div class="chart" id="line"></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="toolbar" style="margin-bottom:10px;">
+      <strong style="font-size:14px;">管道健康</strong>
+      <span id="pipe-error" style="color:#e05c5c;font-size:12px;display:none;">Redis 不可达，指标暂不可用</span>
+    </div>
+    <div class="cards" style="grid-template-columns:repeat(6,1fr);margin-bottom:10px;">
+      <div class="card" style="padding:12px;"><div class="v" id="p-produced" style="font-size:22px;">-</div><div class="l">爬取投递</div></div>
+      <div class="card" style="padding:12px;"><div class="v" id="p-stored" style="font-size:22px;">-</div><div class="l">成功入库</div></div>
+      <div class="card" style="padding:12px;"><div class="v" id="p-rejected" style="font-size:22px;">-</div><div class="l">门控拒绝</div></div>
+      <div class="card" style="padding:12px;"><div class="v" id="p-pending" style="font-size:22px;">-</div><div class="l">PENDING</div></div>
+      <div class="card" style="padding:12px;"><div class="v" id="p-dlq" style="font-size:22px;">-</div><div class="l">死信 DLQ</div></div>
+      <div class="card" style="padding:12px;"><div class="v" id="p-stream" style="font-size:22px;">-</div><div class="l">流长度</div></div>
+    </div>
+    <div id="pipe-reasons" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
+    <div id="pipe-sources" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="toolbar" style="margin-bottom:10px;">
+      <strong style="font-size:14px;">采集监测</strong>
+      <span id="health-status" class="chip">加载中…</span>
+      <span id="health-error" style="color:#e05c5c;font-size:12px;display:none;">监测数据不可用</span>
+    </div>
+    <table style="margin-bottom:12px;">
+      <thead><tr><th>源</th><th>最近一轮</th><th>耗时</th><th>页数</th><th>投递</th><th>失败页</th><th>状态</th></tr></thead>
+      <tbody id="health-rows"></tbody>
+    </table>
+    <div class="chart" id="activity" style="height:240px;"></div>
   </div>
 
   <div class="panel">
     <div class="toolbar">
       <input id="q" placeholder="搜 URL / 正文关键词" style="min-width:240px" />
       <select id="lang"><option value="">全部语言</option></select>
+      <select id="source"><option value="">全部来源</option></select>
       <button id="search">搜索</button>
       <button id="reset">重置</button>
     </div>
     <table>
-      <thead><tr><th>ID</th><th>标题</th><th>语言</th><th>长度</th><th>URL</th><th>时间</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>标题</th><th>来源</th><th>语言</th><th>长度</th><th>URL</th><th>时间</th><th></th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="pager">
       <button id="prev">上一页</button>
       <span id="pageinfo"></span>
       <button id="next">下一页</button>
+      <span class="pager-go">
+        <input id="gopage" type="number" min="1" placeholder="页码" />
+        <button id="go">跳转</button>
+      </span>
     </div>
   </div>
 
@@ -69,7 +111,11 @@
 const $ = (id) => document.getElementById(id);
 const pie = echarts.init($("pie"), "dark");
 const line = echarts.init($("line"), "dark");
+const act = echarts.init($("activity"), "dark");
 let page = 1;
+let lastTotal = 0;
+let pieDim = "lang"; // "lang" | "source"
+const PAGE_SIZE = 20;
 
 async function loadSummary() {
   const s = await (await fetch("/api/summary")).json();
@@ -79,14 +125,18 @@ async function loadSummary() {
 }
 
 async function loadPie() {
-  const d = await (await fetch("/api/lang-dist")).json();
+  const dim = pieDim;
+  const d = await (await fetch(dim === "lang" ? "/api/lang-dist" : "/api/source-dist")).json();
+  const data = d.map(x => dim === "lang"
+    ? ({ name: x.language || "unknown", value: x.count })
+    : ({ name: x.source || "unknown", value: x.count }));
   pie.setOption({
     backgroundColor: "transparent",
-    title: { text: "语言分布", left: "center", textStyle: { fontSize: 14 } },
+    title: { text: dim === "lang" ? "语言分布" : "来源分布", left: "center", textStyle: { fontSize: 14 } },
     tooltip: { trigger: "item" },
     series: [{
       type: "pie", radius: ["40%", "70%"], center: ["50%", "55%"],
-      data: d.map(x => ({ name: x.language || "unknown", value: x.count })),
+      data,
       label: { color: "#e6e6e6" }
     }]
   });
@@ -105,13 +155,120 @@ async function loadLine() {
   });
 }
 
-async function loadLangOptions() {
-  const d = await (await fetch("/api/lang-dist")).json();
+async function loadPipeline() {
+  try {
+    const p = await (await fetch("/api/pipeline")).json();
+    $("p-produced").textContent = p.produced ?? "-";
+    $("p-stored").textContent = p.stored ?? "-";
+    $("p-rejected").textContent = p.rejected ?? "-";
+    $("p-pending").textContent = p.pending ?? "-";
+    $("p-dlq").textContent = p.dlq ?? "-";
+    $("p-stream").textContent = p.stream_length ?? "-";
+    const reasons = $("pipe-reasons");
+    reasons.innerHTML = "";
+    const entries = Object.entries(p.rejected_by_reason || {}).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) {
+      reasons.innerHTML = '<span class="chip">暂无拒绝记录</span>';
+    } else {
+      entries.forEach(([reason, cnt]) => {
+        const s = document.createElement("span");
+        s.className = "chip";
+        s.innerHTML = `${esc(reason)} <b>${cnt}</b>`;
+        reasons.appendChild(s);
+      });
+    }
+    $("pipe-error").style.display = "none";
+    const sources = $("pipe-sources");
+    sources.innerHTML = "";
+    const srcEntries = Object.entries(p.by_source || {}).sort((a, b) => b[1] - a[1]);
+    if (srcEntries.length) {
+      srcEntries.forEach(([src, cnt]) => {
+        const s = document.createElement("span");
+        s.className = "chip";
+        s.innerHTML = `${esc(src)} <b>${cnt}</b>`;
+        sources.appendChild(s);
+      });
+    }
+  } catch (e) {
+    $("pipe-error").style.display = "inline";
+  }
+}
+
+async function loadHealth() {
+  try {
+    const h = await (await fetch("/api/health?hours=24")).json();
+    const badge = $("health-status");
+    const stale = (h.runs || []).filter(r => r.status === "stale");
+    if (!h.runs || !h.runs.length) {
+      badge.textContent = "暂无运行记录";
+      badge.style.color = "var(--muted)";
+    } else if (stale.length) {
+      badge.textContent = "有源停滞: " + stale.map(r => r.source).join(", ");
+      badge.style.color = "#e05c5c";
+    } else {
+      badge.textContent = "全部正常";
+      badge.style.color = "#5cd67a";
+    }
+    const tb = $("health-rows");
+    tb.innerHTML = "";
+    (h.runs || []).forEach(r => {
+      const dot = r.status === "ok" ? "#5cd67a" : (r.status === "stale" ? "#e05c5c" : "#9aa0ac");
+      const when = r.age_minutes == null ? "-" :
+        (r.age_minutes < 90 ? Math.round(r.age_minutes) + " 分钟前"
+                            : (r.age_minutes / 60).toFixed(1) + " 小时前");
+      const dur = r.duration_ms == null ? "-" : (r.duration_ms / 1000).toFixed(1) + "s";
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${esc(r.source)}</td><td>${when}</td><td>${dur}</td>` +
+        `<td>${r.pages ?? "-"}</td><td>${r.published ?? "-"}</td><td>${r.failed_pages ?? "-"}</td>` +
+        `<td><span style="color:${dot}">●</span> ${esc(r.status)}</td>`;
+      tb.appendChild(tr);
+    });
+    const buckets = {};
+    const sources = new Set();
+    (h.series || []).forEach(s => {
+      const t = new Date(s.taken_at);
+      const key = new Date(Math.floor(t.getTime() / 300000) * 300000).toISOString().slice(0, 16).replace("T", " ");
+      buckets[key] = buckets[key] || {};
+      Object.entries(s.by_source || {}).forEach(([src, v]) => {
+        sources.add(src);
+        buckets[key][src] = (buckets[key][src] || 0) + (v.produced_delta || 0);
+      });
+    });
+    const keys = Object.keys(buckets).sort();
+    act.setOption({
+      backgroundColor: "transparent",
+      title: { text: "采集活动（24h 投递数 / 5分钟）", left: "center", textStyle: { fontSize: 14 } },
+      tooltip: { trigger: "axis" },
+      legend: { top: 24, textStyle: { color: "#9aa0ac" } },
+      grid: { left: 40, right: 20, top: 56, bottom: 30 },
+      xAxis: { type: "category", data: keys, axisLabel: { color: "#9aa0ac" } },
+      yAxis: { type: "value", axisLabel: { color: "#9aa0ac" }, splitLine: { lineStyle: { color: "#2a2f3a" } } },
+      series: [...sources].map(src => ({
+        name: src, type: "line", smooth: true, showSymbol: false,
+        data: keys.map(k => buckets[k][src] || 0)
+      }))
+    });
+    $("health-error").style.display = "none";
+  } catch (e) {
+    $("health-error").style.display = "inline";
+  }
+}
+
+async function loadFilters() {
+  const langs = await (await fetch("/api/lang-dist")).json();
   const sel = $("lang");
-  d.forEach(x => {
+  langs.forEach(x => {
     const o = document.createElement("option");
     o.value = x.language || ""; o.textContent = (x.language || "unknown") + " (" + x.count + ")";
     sel.appendChild(o);
+  });
+  const srcs = await (await fetch("/api/source-dist")).json();
+  const ssel = $("source");
+  srcs.forEach(x => {
+    const o = document.createElement("option");
+    o.value = x.source || ""; o.textContent = (x.source || "unknown") + " (" + x.count + ")";
+    ssel.appendChild(o);
   });
 }
 
@@ -120,9 +277,11 @@ function esc(s) { return (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": 
 async function loadArticles() {
   const q = $("q").value.trim();
   const lang = $("lang").value;
-  const params = new URLSearchParams({ page, page_size: 20 });
+  const source = $("source").value;
+  const params = new URLSearchParams({ page, page_size: PAGE_SIZE });
   if (q) params.set("q", q);
   if (lang) params.set("lang", lang);
+  if (source) params.set("source", source);
   const res = await (await fetch("/api/articles?" + params)).json();
   const tb = $("rows");
   tb.innerHTML = "";
@@ -131,6 +290,7 @@ async function loadArticles() {
     tr.innerHTML =
       `<td>${it.id}</td>` +
       `<td>${esc(it.title) || "-"}</td>` +
+      `<td>${esc(it.source_type) || "-"}</td>` +
       `<td>${esc(it.language) || "-"}</td>` +
       `<td>${it.md_len}</td>` +
       `<td><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.url)}</a></td>` +
@@ -138,29 +298,51 @@ async function loadArticles() {
       `<td><button class="toggle">预览</button></td>`;
     const tdPreview = document.createElement("tr");
     tdPreview.style.display = "none";
-    tdPreview.innerHTML = `<td colspan="7" class="preview">${esc(it.preview)}</td>`;
+    tdPreview.innerHTML = `<td colspan="8" class="preview">${esc(it.preview)}</td>`;
     tr.querySelector(".toggle").onclick = () => {
       tdPreview.style.display = tdPreview.style.display === "none" ? "table-row" : "none";
     };
     tb.appendChild(tr);
     tb.appendChild(tdPreview);
   });
-  $("pageinfo").textContent = `第 ${res.page} 页 / 共 ${Math.max(1, Math.ceil(res.total / res.page_size))} 页（${res.total} 条）`;
+  lastTotal = res.total;
+  const maxPg = Math.max(1, Math.ceil(lastTotal / PAGE_SIZE));
+  $("pageinfo").textContent = `第 ${res.page} 页 / 共 ${maxPg} 页（${lastTotal} 条）`;
   $("prev").disabled = res.page <= 1;
-  $("next").disabled = res.page * res.page_size >= res.total;
+  $("next").disabled = res.page >= maxPg;
+  const gp = $("gopage");
+  gp.max = maxPg;
+  gp.value = res.page;
 }
 
 $("search").onclick = () => { page = 1; loadArticles(); };
-$("reset").onclick = () => { $("q").value = ""; $("lang").value = ""; page = 1; loadArticles(); };
+$("reset").onclick = () => { $("q").value = ""; $("lang").value = ""; $("source").value = ""; page = 1; loadArticles(); };
+$("pie-toggle").onclick = () => { pieDim = pieDim === "lang" ? "source" : "lang"; loadPie(); };
 $("prev").onclick = () => { if (page > 1) { page--; loadArticles(); } };
 $("next").onclick = () => { page++; loadArticles(); };
 $("q").addEventListener("keydown", e => { if (e.key === "Enter") { page = 1; loadArticles(); } });
+function goPage() {
+  const gp = $("gopage");
+  const v = parseInt(gp.value, 10);
+  const maxPg = Math.max(1, Math.ceil(lastTotal / PAGE_SIZE));
+  if (Number.isNaN(v) || v < 1 || v > maxPg) {
+    gp.value = page;
+    return;
+  }
+  page = v;
+  gp.value = page;
+  loadArticles();
+}
+$("go").onclick = goPage;
+$("gopage").addEventListener("keydown", e => { if (e.key === "Enter") goPage(); });
 
 (async () => {
-  await Promise.all([loadSummary(), loadPie(), loadLine(), loadLangOptions()]);
+  await Promise.all([loadSummary(), loadPie(), loadLine(), loadFilters(), loadPipeline(), loadHealth()]);
   await loadArticles();
 })();
-window.addEventListener("resize", () => { pie.resize(); line.resize(); });
+setInterval(loadPipeline, 30000); // cheap Redis reads; charts stay manual
+setInterval(loadHealth, 60000);
+window.addEventListener("resize", () => { pie.resize(); line.resize(); act.resize(); });
 </script>
 </body>
 </html>
