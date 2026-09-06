@@ -51,8 +51,10 @@ def code_chars(text):
 def link_ratio(text):
     links = len(_LINK_RE.findall(text))
     words = len(_WORD_RE.findall(text))
-    if words == 0:
-        return 1.0
+    if words < 20:
+        # too few prose tokens for a meaningful link-density signal; don't kill
+        # short notes or code-heavy snippets that carry references.
+        return 0.0
     return links / words
 
 
@@ -71,27 +73,49 @@ def strip_code(text):
     return t
 
 
+def _quality_score(n, cc, lr, ur):
+    """0-1 composite signal (informational): length + code richness + lexical
+    diversity, minus a link-dump penalty. Clamped to [0, 1]. The keep/reject
+    decision is made by the gates below; this score only feeds the
+    `quality_score` column."""
+    length_s = min(n / 3000.0, 1.0)
+    code_s = min(cc / 800.0, 1.0)
+    diversity_s = max(0.0, min(ur, 1.0))
+    link_pen = min(lr / 0.3, 1.0)
+    score = 0.4 * length_s + 0.3 * code_s + 0.3 * diversity_s - 0.5 * link_pen
+    return max(0.0, min(score, 1.0))
+
+
 def assess(text):
     """Return (keep: bool, reason: str, meta: dict)."""
     if not text:
         return False, "empty", {}
     n = len(text)
     cc = code_chars(text)
-    meta = {"len": n, "code_chars": cc, "link_ratio": round(link_ratio(text), 3),
-            "unique_ratio": round(unique_word_ratio(text), 3)}
+    lr = link_ratio(text)
+    ur = unique_word_ratio(text)
+    meta = {
+        "len": n,
+        "code_chars": cc,
+        "link_ratio": round(lr, 3),
+        "unique_ratio": round(ur, 3),
+        "quality_score": round(_quality_score(n, cc, lr, ur), 3),
+    }
 
     # 1. spam / promotional
     if _SPAM_RE.search(text):
         return False, "spam", meta
-    # 2. pure link dump (e.g. link roundups with no prose)
-    if link_ratio(text) > MAX_LINK_RATIO:
-        return False, "link_dump", meta
-    # 3. low lexical diversity (boilerplate / repeated fragments)
-    if unique_word_ratio(text) < MIN_UNIQUE_RATIO:
-        return False, "low_diversity", meta
-    # 4. code-rich carve-out: even a short post with a real code block is kept
+    # 2. code-rich carve-out runs BEFORE link-density / diversity checks:
+    #    code+link posts (API docs, README-style, tutorials with references)
+    #    would otherwise be miskilled by the link_dump gate below.
     if cc >= MIN_CODE_CHARS:
         return True, "code_rich", meta
+    # 3. pure link dump (e.g. link roundups with no prose)
+    if lr > MAX_LINK_RATIO:
+        return False, "link_dump", meta
+    # 4. low lexical diversity (boilerplate / repeated fragments)
+    if ur < MIN_UNIQUE_RATIO:
+        return False, "low_diversity", meta
     # 5. too thin even for prose
     if n < MIN_CONTENT_LEN:
         return False, "too_short", meta

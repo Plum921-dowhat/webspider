@@ -10,26 +10,27 @@ Usage:
 """
 import argparse
 
-import psycopg2
-from config import PG_DSN
 from quality import assess
+from store import get_conn, putconn
 
 
 def probe(limit):
-    conn = psycopg2.connect(PG_DSN)
-    with conn.cursor() as cur:
-        if limit and limit > 0:
-            cur.execute(
-                "SELECT content_md FROM articles WHERE content_md IS NOT NULL "
-                "ORDER BY id DESC LIMIT %s",
-                (limit,),
-            )
-        else:
-            cur.execute(
-                "SELECT content_md FROM articles WHERE content_md IS NOT NULL"
-            )
-        rows = cur.fetchall()
-    conn.close()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            if limit and limit > 0:
+                cur.execute(
+                    "SELECT content_md FROM articles WHERE content_md IS NOT NULL "
+                    "ORDER BY id DESC LIMIT %s",
+                    (limit,),
+                )
+            else:
+                cur.execute(
+                    "SELECT content_md FROM articles WHERE content_md IS NOT NULL"
+                )
+            rows = cur.fetchall()
+    finally:
+        putconn(conn)
 
     reasons = {}
     kept = 0

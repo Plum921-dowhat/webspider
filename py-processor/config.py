@@ -2,6 +2,9 @@ import os
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 STREAM = os.getenv("STREAM", "articles")
+DLQ_STREAM = os.getenv("DLQ_STREAM", "articles_dlq")
+DLQ_SEEN_KEY = os.getenv("DLQ_SEEN_KEY", "dlq:seen")
+DLQ_MAXLEN = int(os.getenv("DLQ_MAXLEN", "20000"))
 CONSUMER_GROUP = os.getenv("CONSUMER_GROUP", "py")
 CONSUMER_NAME = os.getenv("CONSUMER_NAME", "proc-1")
 
@@ -23,6 +26,12 @@ FETCH_QPS = float(os.getenv("FETCH_QPS", "6"))         # aggregate QPS to DEV.to
 FETCH_TIMEOUT = int(os.getenv("FETCH_TIMEOUT", "15"))
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
 FETCH_MAX_BACKOFF = float(os.getenv("FETCH_MAX_BACKOFF", "60"))
+
+# Per-domain politeness cap (the global bucket alone can hammer one host when
+# a batch of URLs shares the same domain). Per-host overrides, e.g.
+# "dev.to:3,stackoverflow.com:2", raise the cap for high-volume first-party hosts.
+FETCH_HOST_QPS = float(os.getenv("FETCH_HOST_QPS", "1.0"))
+FETCH_HOST_OVERRIDES = os.getenv("FETCH_HOST_OVERRIDES", "")
 
 # --- SimHash LSH banding (persistent in Redis) ---
 SIMHASH_BANDS = int(os.getenv("SIMHASH_BANDS", "4"))
