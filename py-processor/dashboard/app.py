@@ -3,20 +3,35 @@
 Run:
     cd D:/src/WebSpider/py-processor
     uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
+
+Auth (optional): set DASH_TOKEN to require `Authorization: Bearer <token>` on
+all /api/* routes; unset (default) leaves the dashboard open.
 """
 import os
 import sys
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from queries import articles, daily, health, lang_distribution, pipeline, source_distribution, summary
+from queries import article_by_id, articles, daily, health, lang_distribution, pipeline, source_distribution, summary
 
-app = FastAPI(title="Crawler Dashboard", version="1.0.0")
+app = FastAPI(title="Crawler Dashboard", version="1.1.0")
+
+_DASH_TOKEN = os.getenv("DASH_TOKEN", "")
+
+
+@app.middleware("http")
+async def auth_guard(request, call_next):
+    """Optional bearer guard for /api/*. The static page itself stays open so
+    the frontend can prompt for the token and store it."""
+    if _DASH_TOKEN and request.url.path.startswith("/api/"):
+        if request.headers.get("authorization", "") != f"Bearer {_DASH_TOKEN}":
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/")
@@ -74,6 +89,17 @@ def api_health(hours: int = Query(24, ge=1, le=168)):
         return health(hours)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/articles/{article_id}")
+def api_article_detail(article_id: int):
+    try:
+        article = article_by_id(article_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if article is None:
+        raise HTTPException(status_code=404, detail="article not found")
+    return article
 
 
 @app.get("/api/articles")

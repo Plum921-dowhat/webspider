@@ -88,6 +88,36 @@ def daily(limit=30):
     return [{"day": str(r[0]), "count": r[1]} for r in rows]
 
 
+def article_by_id(aid):
+    """Full article record for the detail view. Returns None if missing."""
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, url, title, content_md, author, published_at, tags,
+                   source_type, language, quality_score, crawled_at
+            FROM articles
+            WHERE id = %s
+            """,
+            (aid,),
+        )
+        r = cur.fetchone()
+    if r is None:
+        return None
+    return {
+        "id": r[0],
+        "url": r[1],
+        "title": r[2],
+        "content_md": r[3],
+        "author": r[4],
+        "published_at": r[5].isoformat() if r[5] else None,
+        "tags": r[6] or [],
+        "source_type": r[7],
+        "language": r[8],
+        "quality_score": float(r[9]) if r[9] is not None else None,
+        "crawled_at": r[10].isoformat() if r[10] else None,
+    }
+
+
 def articles(lang=None, q=None, source=None, page=1, page_size=20):
     """Filtered + searched + paginated article list with content preview.
 
