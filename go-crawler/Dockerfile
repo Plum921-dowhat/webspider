@@ -1,5 +1,5 @@
 # ---- build stage ----
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 
 # 国内 Go 模块代理加速
 ENV GOPROXY=https://goproxy.cn,direct
