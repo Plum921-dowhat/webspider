@@ -48,6 +48,27 @@ export.py → corpus.jsonl（自包含语料导出）
 | `db/` | `init.sql`（建表 + 索引）、`migrations/`（存量库迁移） |
 | `docker-compose.yml` | redis / postgres / crawler / processor / dashboard 五服务编排 |
 
+## RAG 出口
+
+采集入库只是上半场，`py-processor` 内置了到向量检索的三步管道：
+
+```bash
+# 1) 分块导出（增量：state 文件记录上次导出的文章 id，重复执行只出新数据）
+docker compose exec processor python rag_export.py            # 首次建议 --full
+docker compose cp processor:/tmp/corpus_chunks.jsonl corpus_chunks.jsonl
+
+# 2) 生成 embedding（OpenAI 兼容接口，key 填在 .env，见 .env.example）
+docker compose exec processor python embed_chunks.py \
+    --chunks /tmp/corpus_chunks.jsonl --out /tmp/corpus_vectors.npz
+docker compose cp processor:/tmp/corpus_vectors.npz corpus_vectors.npz
+
+# 3) 导入 pgvector（需把 compose 中 postgres 镜像换成 pgvector/pgvector:pg16）
+docker compose exec processor python import_pgvector.py \
+    --chunks /tmp/corpus_chunks.jsonl --vectors /tmp/corpus_vectors.npz
+```
+
+每个 chunk 携带完整溯源元数据：`chunk_id / url / title / heading_path（如 ["文章标题", "Top answer"]）/ chunk_index / n_chunks / tags / source_type / published_at / quality_score`。分块策略按 Markdown 标题层级切分，超长段在段落边界二次切分并带 150 字符重叠，代码块永不硬切。
+
 ## 监测
 
 管道自带两层监测：

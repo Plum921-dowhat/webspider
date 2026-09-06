@@ -20,14 +20,16 @@ import (
 // apply. Feeds that fail to fetch are skipped for the run (logged), never
 // fail the whole page.
 type RSS struct {
-	feeds  []string
-	client *http.Client
+	feeds     []string
+	userAgent string
+	client    *http.Client
 }
 
 func NewRSS(cfg config.CrawlerConfig) *RSS {
 	return &RSS{
-		feeds:  cfg.RSSFeeds,
-		client: &http.Client{Timeout: 20 * time.Second},
+		feeds:     cfg.RSSFeeds,
+		userAgent: resolveUserAgent(cfg.UserAgent),
+		client:    &http.Client{Timeout: 20 * time.Second},
 	}
 }
 
@@ -43,6 +45,7 @@ func (r *RSS) FetchSince(ctx context.Context, page int, perPage int, since time.
 
 	parser := gofeed.NewParser()
 	parser.Client = r.client
+	parser.UserAgent = r.userAgent
 
 	oldest := time.Time{}
 	out := make([]ArticleRaw, 0, perPage)

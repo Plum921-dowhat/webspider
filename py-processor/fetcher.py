@@ -30,7 +30,8 @@ class PermanentFetchError(Exception):
     on the DLQ — cannot ever recover it, so callers skip it instead."""
 
 DEFAULT_HEADERS = {
-    "User-Agent": "en-tech-corpus-bot/1.0 (+https://example.com/bot)",
+    # Set FETCH_UA (env) to a real contact address before long deployments.
+    "User-Agent": os.getenv("FETCH_UA", "en-tech-corpus-bot/1.0 (+https://example.com/bot)"),
     # Accept: text/html, NOT application/json — with the JSON accept header
     # dev.to serves raw article JSON (body_html: null posts) for some URLs,
     # which trafilatura cannot parse (mass extract_fail).

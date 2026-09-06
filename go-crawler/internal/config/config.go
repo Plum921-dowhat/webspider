@@ -28,6 +28,9 @@ type CrawlerConfig struct {
 	// MaxPageFailures aborts a run after this many failed pages (circuit
 	// breaker against a down/blocked upstream). <=0 falls back to the default.
 	MaxPageFailures int `yaml:"max_page_failures"`
+	// UserAgent overrides the bot UA sent to upstreams; CRAWLER_USER_AGENT
+	// env wins. Fill in a real contact address for long-running deployments.
+	UserAgent string `yaml:"user_agent"`
 
 	// --- source-specific options ---
 

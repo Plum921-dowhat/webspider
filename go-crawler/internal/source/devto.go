@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"en-tech-pipeline/go-crawler/internal/config"
 )
 
 // /api/articles (default) is popularity-ordered — its newest item can lag by
@@ -15,11 +17,15 @@ import (
 const devToBase = "https://dev.to/api/articles/latest"
 
 type DevTo struct {
-	client *http.Client
+	client    *http.Client
+	userAgent string
 }
 
-func NewDevTo() *DevTo {
-	return &DevTo{client: &http.Client{Timeout: 15 * time.Second}}
+func NewDevTo(cfg config.CrawlerConfig) *DevTo {
+	return &DevTo{
+		client:    &http.Client{Timeout: 15 * time.Second},
+		userAgent: resolveUserAgent(cfg.UserAgent),
+	}
 }
 
 func (d *DevTo) Name() string { return "devto" }
@@ -121,7 +127,7 @@ func (d *DevTo) FetchSince(ctx context.Context, page int, perPage int, since tim
 		q.Set("per_page", fmt.Sprintf("%d", perPage))
 		req.URL.RawQuery = q.Encode()
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", "WebSpider/0.1 (+https://example.com)")
+		req.Header.Set("User-Agent", d.userAgent)
 
 		resp, err := d.client.Do(req)
 		if err != nil {

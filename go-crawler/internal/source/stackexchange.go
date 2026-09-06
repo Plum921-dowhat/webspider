@@ -36,6 +36,7 @@ type StackExchange struct {
 	minScore        int
 	requireAnswered bool
 	apiKey          string
+	userAgent       string
 	client          *http.Client
 	conv            *converter.Converter
 }
@@ -54,6 +55,7 @@ func NewStackExchange(cfg config.CrawlerConfig) *StackExchange {
 		minScore:        cfg.SEMinScore,
 		requireAnswered: cfg.SERequireAnswered,
 		apiKey:          apiKey,
+		userAgent:       resolveUserAgent(cfg.UserAgent),
 		client:          &http.Client{Timeout: 20 * time.Second},
 		conv: converter.NewConverter(
 			converter.WithPlugins(
@@ -110,7 +112,7 @@ func (s *StackExchange) getJSON(ctx context.Context, path string, out any) error
 		if err != nil {
 			return err
 		}
-		req.Header.Set("User-Agent", "en-tech-corpus-bot/1.0 (+https://example.com/bot)")
+		req.Header.Set("User-Agent", s.userAgent)
 		// NOTE: no manual Accept-Encoding — SE gzip-encodes responses, and
 		// Go's transport only auto-decompresses when IT added the header.
 

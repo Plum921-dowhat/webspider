@@ -13,6 +13,9 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    # To enable the RAG vector store (import_pgvector.py), swap to the
+    # pgvector image instead — the data volume is compatible:
+    # image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: crawler
@@ -33,6 +36,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    environment:
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT:-}
 
   crawler-hashnode:
     build: ./go-crawler
@@ -48,6 +53,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    environment:
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT:-}
     # ENTRYPOINT is the crawler binary; command only selects the config file.
     command: ["/app/config.rss.docker.yaml"]
 
@@ -60,6 +67,7 @@ services:
     command: ["/app/config.stackexchange.docker.yaml"]
     environment:
       SE_API_KEY: ${SE_API_KEY:-}
+      CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT:-}
 
   processor:
     build: ./py-processor
@@ -77,6 +85,8 @@ services:
       CONSUMER_NAME: proc-1
       PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
       MIN_CONTENT_LEN: "100"
+      FETCH_UA: ${FETCH_UA:-}
+      FETCH_HOST_OVERRIDES: "dev.to:4"
 
   monitor:
     build: ./py-processor
@@ -94,6 +104,24 @@ services:
       CONSUMER_GROUP: py
       PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
       MONITOR_INTERVAL: "60"
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+      - ./db/backup-entrypoint.sh:/backup-entrypoint.sh:ro
+    entrypoint: ["sh", "/backup-entrypoint.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: crawler
+      PGPASSWORD: crawler_pwd
+      PGDATABASE: corpus
+      BACKUP_INTERVAL_HOURS: "6"
+      BACKUP_KEEP: "28"
 
   dashboard:
     build: ./py-processor

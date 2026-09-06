@@ -20,7 +20,7 @@ import (
 // constructor receives the crawler config so sources can carry their own
 // options (e.g. rss_feeds, se_site).
 var sourceRegistry = map[string]func(config.CrawlerConfig) source.Source{
-	"devto":         func(cfg config.CrawlerConfig) source.Source { return source.NewDevTo() },
+	"devto":         func(cfg config.CrawlerConfig) source.Source { return source.NewDevTo(cfg) },
 	"stackexchange": func(cfg config.CrawlerConfig) source.Source { return source.NewStackExchange(cfg) },
 	"rss":           func(cfg config.CrawlerConfig) source.Source { return source.NewRSS(cfg) },
 }
