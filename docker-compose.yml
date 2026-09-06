@@ -86,7 +86,9 @@ services:
       PG_DSN: postgres://crawler:crawler_pwd@postgres:5432/corpus
       MIN_CONTENT_LEN: "100"
       FETCH_UA: ${FETCH_UA:-}
-      FETCH_HOST_OVERRIDES: "dev.to:4"
+      # dev.to web pages: stay at the polite 1 QPS default — 2+ QPS sustained
+      # trips Cloudflare 403 blocks once IP reputation is degraded.
+      FETCH_HOST_OVERRIDES: "dev.to:1"
 
   monitor:
     build: ./py-processor

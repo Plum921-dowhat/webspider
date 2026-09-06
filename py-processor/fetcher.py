@@ -19,7 +19,7 @@ import requests
 
 from config import (
     FETCH_WORKERS, FETCH_QPS, FETCH_TIMEOUT, FETCH_RETRIES, FETCH_MAX_BACKOFF,
-    FETCH_HOST_QPS, FETCH_HOST_OVERRIDES,
+    FETCH_HOST_QPS, FETCH_HOST_OVERRIDES, FETCH_403_COOLDOWN,
 )
 
 logger = logging.getLogger("fetcher")
@@ -186,6 +186,16 @@ def fetch_one(url):
             _get_bucket().penalise(ra if ra is not None else 5.0)
             time.sleep(_backoff_delay(attempt, retry_after=ra))
             last_err = f"429 (Retry-After={ra})"
+            continue
+        if resp.status_code == 403:
+            # Cloudflare-style block, not a content verdict: cool the host
+            # bucket down (all workers slow to a stop) and retry — blocks are
+            # usually shorter than the retry span, so the batch self-heals
+            # instead of landing wholesale on the DLQ.
+            if host_bucket is not None:
+                host_bucket.penalise(FETCH_403_COOLDOWN * (attempt + 1))
+            last_err = f"403 (blocked, cooldown {FETCH_403_COOLDOWN * (attempt + 1):.0f}s)"
+            time.sleep(2.0)
             continue
         if resp.status_code >= 500:
             # transient server errors: retry with backoff (mirrors Go side)

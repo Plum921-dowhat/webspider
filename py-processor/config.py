@@ -26,6 +26,9 @@ FETCH_QPS = float(os.getenv("FETCH_QPS", "6"))         # aggregate QPS to DEV.to
 FETCH_TIMEOUT = int(os.getenv("FETCH_TIMEOUT", "15"))
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
 FETCH_MAX_BACKOFF = float(os.getenv("FETCH_MAX_BACKOFF", "60"))
+# Cloudflare-style 403 block: cool the whole host bucket down for this many
+# seconds per 403 before retrying, instead of failing the URL instantly.
+FETCH_403_COOLDOWN = float(os.getenv("FETCH_403_COOLDOWN", "90"))
 
 # Per-domain politeness cap (the global bucket alone can hammer one host when
 # a batch of URLs shares the same domain). Per-host overrides, e.g.

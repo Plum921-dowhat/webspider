@@ -24,3 +24,6 @@ go-crawler/bin/
 .tmp_*
 .zcode/
 backups/
+corpus.jsonl
+corpus_chunks.jsonl
+corpus_vectors.npz

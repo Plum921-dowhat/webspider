@@ -92,3 +92,70 @@ def test_get_host_bucket_per_host_and_override(monkeypatch):
     assert b1 is not b3
     assert b1._rate == f.FETCH_HOST_QPS  # default per-host rate
     assert b3._rate == 5.0  # override wins
+
+
+class _FakeBucket:
+    def __init__(self):
+        self.penalties = []
+
+    def acquire(self, tokens=1):
+        pass
+
+    def penalise(self, seconds):
+        self.penalties.append(seconds)
+
+
+class _FakeResp:
+    def __init__(self, status):
+        self.status_code = status
+        self.headers = {}
+
+    @property
+    def text(self):
+        return ""
+
+
+def _run_fetch_one(monkeypatch, status_factory):
+    import fetcher as f
+
+    calls = {"n": 0}
+    fb_global, fb_host = _FakeBucket(), _FakeBucket()
+
+    class FakeSession:
+        def get(self, url, timeout=None):
+            calls["n"] += 1
+            return status_factory(calls["n"])
+
+    monkeypatch.setattr(f, "_get_bucket", lambda: fb_global)
+    monkeypatch.setattr(f, "_get_host_bucket", lambda url: fb_host)
+    monkeypatch.setattr(f, "_get_session", lambda: FakeSession())
+    monkeypatch.setattr(f.time, "sleep", lambda s: None)
+    result = f.fetch_one("https://dev.to/some-post")
+    return result, calls["n"], fb_host
+
+
+def test_fetch_one_403_penalises_and_retries(monkeypatch):
+    # 403 is a block, not a content verdict: every attempt penalises the host
+    # bucket with a growing cooldown and retries instead of failing instantly
+    result, calls, fb_host = _run_fetch_one(monkeypatch, lambda n: _FakeResp(403))
+    assert result is None
+    assert calls == 4  # FETCH_RETRIES(3) + 1
+    assert len(fb_host.penalties) == 4
+    assert fb_host.penalties[0] < fb_host.penalties[-1]  # growing cooldown
+
+
+def test_fetch_one_404_is_permanent_no_retries(monkeypatch):
+    from fetcher import PermanentFetchError
+
+    try:
+        _run_fetch_one(monkeypatch, lambda n: _FakeResp(404))
+        raised = False
+    except PermanentFetchError:
+        raised = True
+    assert raised
+
+
+def test_fetch_one_200_returns_text(monkeypatch):
+    result, calls, _ = _run_fetch_one(monkeypatch, lambda n: _FakeResp(200))
+    assert result == ""
+    assert calls == 1
