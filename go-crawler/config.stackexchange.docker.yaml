@@ -1,0 +1,19 @@
+redis:
+  addr: "redis:6379"
+  password: ""
+  stream: "articles"
+  consumer_group: "py"
+  stream_max_len: 100000
+
+crawler:
+  source: "stackexchange"
+  per_page: 100
+  max_concurrency: 4
+  rate_per_sec: 1      # anonymous quota is 300 req/day/IP; set SE_API_KEY for 10k/day
+  since_hours: 3       # activity window; ~10-15 req/run fits the anonymous quota at this interval
+  max_pages: 0
+  interval_minutes: 120
+  max_page_failures: 3
+  se_site: "stackoverflow"
+  se_min_score: 0      # drop negatively-scored questions
+  se_require_answered: true

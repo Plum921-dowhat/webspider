@@ -1,0 +1,24 @@
+# Generic RSS/Atom engineering-blog feeds (RAG breadth). One poll per run;
+# article pages are fetched by the processor under per-domain rate limits.
+redis:
+  addr: "redis:6379"
+  password: ""
+  stream: "articles"
+  consumer_group: "py"
+  stream_max_len: 100000
+
+crawler:
+  source: "rss"
+  per_page: 300        # total items per poll across all feeds
+  max_concurrency: 4   # unused (single-page poll)
+  rate_per_sec: 2      # applies to feed fetches
+  since_hours: 168     # engineering blogs post weekly-ish; dedup SET makes re-polls idempotent
+  max_pages: 1         # single-page poll by design
+  interval_minutes: 60
+  max_page_failures: 3
+  rss_feeds:
+    - "https://blog.cloudflare.com/rss/"
+    - "https://github.blog/feed/"
+    - "https://aws.amazon.com/blogs/aws/feed/"
+    - "https://netflixtechblog.com/feed"
+    - "https://engineering.fb.com/feed/"

@@ -3,11 +3,14 @@ redis:
   password: ""
   stream: "articles"
   consumer_group: "py"
+  stream_max_len: 100000 # XADD MAXLEN ~ N; 0 = unbounded
 
 crawler:
   source: "devto"
   per_page: 100
-  max_concurrency: 8
-  rate_per_sec: 3
-  since_hours: 0
-  max_pages: 0
+  max_concurrency: 4
+  rate_per_sec: 1       # dev.to throttles anonymously with no rate-limit headers; stay gentle
+  since_hours: 24        # incremental: only articles newer than 24h
+  max_pages: 0           # 0 = unbounded (stop on empty page or cursor)
+  interval_minutes: 60   # >0: keep running, re-crawl every 60 minutes
+  max_page_failures: 3   # circuit breaker: abort a run after N failed pages

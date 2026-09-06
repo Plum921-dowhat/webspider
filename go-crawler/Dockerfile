@@ -1,5 +1,5 @@
 # ---- build stage ----
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 
 # 国内 Go 模块代理加速
 ENV GOPROXY=https://goproxy.cn,direct
@@ -16,5 +16,8 @@ FROM alpine:3.20
 WORKDIR /app
 RUN apk add --no-cache ca-certificates
 COPY --from=build /out/crawler /app/crawler
-COPY config.docker.yaml /app/config.docker.yaml
-ENTRYPOINT ["/app/crawler", "/app/config.docker.yaml"]
+COPY config*.yaml /app/
+# Config path comes from CMD so one image can serve multiple sources
+# (docker-compose overrides command per crawler-<source> service).
+ENTRYPOINT ["/app/crawler"]
+CMD ["/app/config.docker.yaml"]

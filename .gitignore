@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.pytest_cache/
 
 # Go
 go-crawler/bin/
@@ -20,3 +21,6 @@ go-crawler/bin/
 
 # Misc
 *.tmp
+.tmp_*
+.zcode/
+backups/

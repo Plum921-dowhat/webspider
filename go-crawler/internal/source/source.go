@@ -8,6 +8,9 @@ import (
 
 // ArticleRaw is the normalized record produced by any source before it enters
 // the Redis Stream. Payload keeps the original API JSON for the processor.
+// ContentMD is the optional inline body: API-first sources (Stack Exchange)
+// deliver clean markdown directly, and the processor then skips the HTML
+// fetch/extract stages entirely.
 type ArticleRaw struct {
 	URL        string          `json:"url"`
 	Title      string          `json:"title"`
@@ -16,6 +19,7 @@ type ArticleRaw struct {
 	Tags       []string        `json:"tags"`
 	SourceType string          `json:"source_type"`
 	Payload    json.RawMessage `json:"payload"`
+	ContentMD  string          `json:"content_md,omitempty"`
 }
 
 // Source fetches pages of articles. FetchSince returns articles published at or

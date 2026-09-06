@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
-const devToBase = "https://dev.to/api/articles"
+// /api/articles (default) is popularity-ordered — its newest item can lag by
+// days, which starves the incremental since-hours window. /latest is strictly
+// newest-first, which the scheduler's empty-page/cursor stop logic requires.
+const devToBase = "https://dev.to/api/articles/latest"
 
 type DevTo struct {
 	client *http.Client
@@ -56,34 +60,102 @@ func parseTags(raw json.RawMessage) []string {
 	return nil
 }
 
+// parseRetryAfter converts a Retry-After header (delta-seconds or HTTP-date)
+// into a duration. Returns 0 when absent, unparseable, or non-positive —
+// callers treat <=0 as "no explicit wait".
+func parseRetryAfter(v string) time.Duration {
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+func backoffSeconds(attempt int) time.Duration {
+	if attempt > 5 {
+		attempt = 5
+	}
+	return time.Duration(1<<attempt) * time.Second
+}
+
+// sleepBackoff sleeps for d (default 500ms), aborting early if ctx is done.
+func sleepBackoff(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		d = 500 * time.Millisecond
+	}
+	select {
+	case <-time.After(d):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // FetchSince fetches one page; returns articles at/after `since` (zero = no
 // filter), the oldest published time seen, and whether the page was empty for
 // the cursor (all items older than `since`).
+const maxDevToRetries = 3
+
 func (d *DevTo) FetchSince(ctx context.Context, page int, perPage int, since time.Time) ([]ArticleRaw, time.Time, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devToBase, nil)
-	if err != nil {
-		return nil, time.Time{}, false, err
-	}
-	q := req.URL.Query()
-	q.Set("page", fmt.Sprintf("%d", page))
-	q.Set("per_page", fmt.Sprintf("%d", perPage))
-	req.URL.RawQuery = q.Encode()
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "WebSpider/0.1 (+https://example.com)")
+	var (
+		lastErr error
+		items   []devToArticle
+	)
+	for attempt := 0; attempt < maxDevToRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, devToBase, nil)
+		if err != nil {
+			return nil, time.Time{}, false, err
+		}
+		q := req.URL.Query()
+		q.Set("page", fmt.Sprintf("%d", page))
+		q.Set("per_page", fmt.Sprintf("%d", perPage))
+		req.URL.RawQuery = q.Encode()
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "WebSpider/0.1 (+https://example.com)")
 
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, time.Time{}, false, err
-	}
-	defer resp.Body.Close()
+		resp, err := d.client.Do(req)
+		if err != nil {
+			lastErr = err
+			if !sleepBackoff(ctx, backoffSeconds(attempt)) {
+				return nil, time.Time{}, false, ctx.Err()
+			}
+			continue
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, time.Time{}, false, fmt.Errorf("devto status %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusOK {
+			decodeErr := json.NewDecoder(resp.Body).Decode(&items)
+			resp.Body.Close()
+			if decodeErr != nil {
+				return nil, time.Time{}, false, decodeErr
+			}
+			break
+		}
+		// 429: honour Retry-After when present, otherwise back off on the
+		// seconds ladder. dev.to sends no rate-limit headers at all, so the
+		// 500ms default sleep would land inside the throttle window and burn
+		// every attempt. 5xx: exponential backoff.
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		resp.Body.Close()
+		lastErr = fmt.Errorf("devto status %d", resp.StatusCode)
+		if retryAfter <= 0 {
+			retryAfter = backoffSeconds(attempt)
+		}
+		if !sleepBackoff(ctx, retryAfter) {
+			return nil, time.Time{}, false, ctx.Err()
+		}
 	}
-
-	var items []devToArticle
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		return nil, time.Time{}, false, err
+	if lastErr != nil {
+		return nil, time.Time{}, false, fmt.Errorf("devto after %d attempts: %w", maxDevToRetries, lastErr)
 	}
 
 	if len(items) == 0 {
