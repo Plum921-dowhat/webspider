@@ -12,10 +12,9 @@ services:
       retries: 10
 
   postgres:
-    image: postgres:16-alpine
-    # To enable the RAG vector store (import_pgvector.py), swap to the
-    # pgvector image instead — the data volume is compatible:
-    # image: pgvector/pgvector:pg16
+    # pgvector build of postgres 16: enables the RAG vector store
+    # (article_chunks table). Data volume is compatible with postgres:16.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: crawler

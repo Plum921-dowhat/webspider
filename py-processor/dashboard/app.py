@@ -18,6 +18,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from queries import article_by_id, articles, daily, health, lang_distribution, pipeline, source_distribution, summary
+from dashboard import rag_search
 
 app = FastAPI(title="Crawler Dashboard", version="1.1.0")
 
@@ -87,6 +88,31 @@ def api_health(hours: int = Query(24, ge=1, le=168)):
     """Crawler activity monitoring: per-source run heartbeats + snapshot series."""
     try:
         return health(hours)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/search")
+def api_search(
+    q: str = Query(..., min_length=2),
+    k: int = Query(8, ge=1, le=32),
+    source: str | None = Query(None),
+    min_quality: float | None = Query(None, ge=0, le=1),
+    since: str | None = Query(None),
+):
+    """Semantic Top-K retrieval over the pgvector corpus. 429 when the query
+    rate exceeds RAG_QPS, 503 when the embedding backend is not configured."""
+    try:
+        return rag_search.semantic_search(q, k=k, source=source,
+                                          min_quality=min_quality, since=since)
+    except rag_search.RateLimited as exc:
+        return JSONResponse(
+            {"detail": str(exc)},
+            status_code=429,
+            headers={"Retry-After": str(int(exc.retry_after) + 1)},
+        )
+    except rag_search.SearchUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

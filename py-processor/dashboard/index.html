@@ -95,6 +95,25 @@
     <div class="chart" id="activity" style="height:240px;"></div>
   </div>
 
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="toolbar" style="margin-bottom:10px;">
+      <strong style="font-size:14px;">语义检索</strong>
+      <span id="rag-hint" style="color:var(--muted);font-size:12px;">按语义在语料中检索相关片段（需配置 EMBEDDING_* 环境变量）</span>
+    </div>
+    <div class="toolbar" style="margin-bottom:10px;">
+      <input id="rag-q" placeholder="语义检索：描述你想找的内容…" style="min-width:320px" />
+      <select id="rag-source" style="min-width:130px">
+        <option value="">全部来源</option>
+        <option value="devto">devto</option>
+        <option value="stackexchange">stackexchange</option>
+        <option value="rss">rss</option>
+      </select>
+      <input id="rag-k" type="number" min="1" max="32" value="8" style="width:70px" title="Top-K" />
+      <button id="rag-go">检索</button>
+    </div>
+    <div id="rag-results"></div>
+  </div>
+
   <div class="panel">
     <div class="toolbar">
       <input id="q" placeholder="搜 URL / 正文关键词" style="min-width:240px" />
@@ -378,6 +397,50 @@ async function loadArticles() {
 $("search").onclick = () => { page = 1; loadArticles(); };
 $("reset").onclick = () => { $("q").value = ""; $("lang").value = ""; $("source").value = ""; page = 1; loadArticles(); };
 $("pie-toggle").onclick = () => { pieDim = pieDim === "lang" ? "source" : "lang"; loadPie(); };
+
+$("rag-go").onclick = ragSearch;
+$("rag-q").addEventListener("keydown", e => { if (e.key === "Enter") ragSearch(); });
+async function ragSearch() {
+  const q = $("rag-q").value.trim();
+  const box = $("rag-results");
+  const hint = $("rag-hint");
+  if (q.length < 2) { hint.textContent = "请输入至少 2 个字符"; return; }
+  hint.textContent = "检索中…";
+  const params = new URLSearchParams({ q, k: $("rag-k").value || 8 });
+  const src = $("rag-source").value;
+  if (src) params.set("source", src);
+  try {
+    const resp = await api("/api/search?" + params);
+    if (resp.status === 429) {
+      const d = await resp.json();
+      hint.textContent = d.detail || "限流中，请稍后再试";
+      return;
+    }
+    if (resp.status === 503) {
+      const d = await resp.json();
+      hint.textContent = "语义检索未启用：" + (d.detail || "");
+      return;
+    }
+    const results = await resp.json();
+    hint.textContent = results.length ? `命中 ${results.length} 条` : "无结果";
+    box.innerHTML = "";
+    results.forEach(r => {
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px solid #2a2f3a;border-radius:8px;padding:10px;margin-bottom:8px;";
+      const path = (r.heading_path || []).map(esc).join(" › ");
+      card.innerHTML =
+        `<div style="display:flex;justify-content:space-between;gap:8px;">` +
+        `<a href="${esc(r.url)}" target="_blank" rel="noopener"><b>${esc(r.title) || "(无标题)"}</b></a>` +
+        `<span style="color:var(--muted);font-size:12px;">score ${r.score}</span></div>` +
+        (path ? `<div style="color:var(--muted);font-size:12px;margin:4px 0;">${path}</div>` : "") +
+        `<div style="color:var(--fg);font-size:13px;margin-top:4px;">${esc(r.text).slice(0, 600)}${r.text.length > 600 ? "…" : ""}</div>` +
+        `<div style="color:var(--muted);font-size:12px;margin-top:4px;">${esc(r.source_type)} · ${esc(r.published_at || "")}</div>`;
+      box.appendChild(card);
+    });
+  } catch (e) {
+    hint.textContent = "检索失败：" + e;
+  }
+}
 $("prev").onclick = () => { if (page > 1) { page--; loadArticles(); } };
 $("next").onclick = () => { page++; loadArticles(); };
 $("q").addEventListener("keydown", e => { if (e.key === "Enter") { page = 1; loadArticles(); } });

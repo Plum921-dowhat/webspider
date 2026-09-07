@@ -46,3 +46,10 @@ MIN_CODE_CHARS = int(os.getenv("MIN_CODE_CHARS", "80"))
 MAX_LINK_RATIO = float(os.getenv("MAX_LINK_RATIO", "0.30"))
 MIN_UNIQUE_RATIO = float(os.getenv("MIN_UNIQUE_RATIO", "0.25"))
 MIN_WORDS_NO_CODE = int(os.getenv("MIN_WORDS_NO_CODE", "50"))
+
+# --- RAG semantic search (pgvector + OpenAI-compatible embeddings) ---
+EMBEDDING_API_BASE = os.getenv("EMBEDDING_API_BASE", "")
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "")
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "8"))
+RAG_QPS = float(os.getenv("RAG_QPS", "1.0"))  # /api/search max query rate
