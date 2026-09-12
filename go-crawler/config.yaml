@@ -15,3 +15,4 @@ crawler:
   interval_minutes: 60   # >0: keep running, re-crawl every 60 minutes
   max_page_failures: 3   # circuit breaker: abort a run after N failed pages
   use_cursor: true       # incremental cursor: resume from newest seen article
+  fetch_body: true       # content-in-payload: fetch body_markdown per article (2/s), processor skips web fetch

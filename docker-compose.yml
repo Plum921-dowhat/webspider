@@ -38,13 +38,6 @@ services:
     environment:
       CRAWLER_USER_AGENT: ${CRAWLER_USER_AGENT:-}
 
-  crawler-hashnode:
-    build: ./go-crawler
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: ["/app/crawler", "/app/config.hashnode.docker.yaml"]
 
   crawler-rss:
     build: ./go-crawler

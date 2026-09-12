@@ -111,15 +111,24 @@ class TokenBucket:
         while True:
             with self._lock:
                 now = time.monotonic()
-                elapsed = now - self._last
-                self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
-                self._last = now
-                if self._tokens >= tokens:
-                    self._tokens -= tokens
-                    return
-                # time until enough tokens accrue
-                wait = (tokens - self._tokens) / self._rate
-            time.sleep(wait)
+                # penalty window (_last pushed into the future by penalise):
+                # just wait it out — NEVER add negative elapsed to the token
+                # count, that accumulates unbounded debt and can stall the
+                # pool for hours after a 403 storm.
+                wait = self._last - now
+                if wait <= 0:
+                    self._tokens = min(self._capacity,
+                                       self._tokens + (-wait) * self._rate)
+                    self._last = now  # anchor refill here; never let elapsed go negative
+                    if self._tokens >= tokens:
+                        self._tokens -= tokens
+                        return
+                    wait = (tokens - self._tokens) / self._rate
+                else:
+                    wait = min(wait, 5.0)
+            # cap each sleep so state changes (new penalise / recovery) are
+            # noticed promptly instead of oversleeping
+            time.sleep(min(wait, 5.0))
 
     def penalise(self, seconds):
         """Throttle the whole pool: drain tokens and push the refill clock

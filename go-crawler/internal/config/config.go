@@ -34,6 +34,10 @@ type CrawlerConfig struct {
 	// UseCursor starts each run from the per-source Redis cursor (newest seen
 	// published_at) instead of re-scanning the full since_hours window.
 	UseCursor bool `yaml:"use_cursor"`
+	// FetchBody: for API sources that can serve canonical markdown per
+	// article (devto), fetch body_markdown at crawl time so the processor
+	// skips its web-fetch stage. Nil defaults to true.
+	FetchBody *bool `yaml:"fetch_body"`
 
 	// --- source-specific options ---
 

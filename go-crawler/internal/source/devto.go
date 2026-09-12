@@ -8,23 +8,36 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"en-tech-pipeline/go-crawler/internal/config"
 )
 
-// /api/articles (default) is popularity-ordered — its newest item can lag by
-// days, which starves the incremental since-hours window. /latest is strictly
-// newest-first, which the scheduler's empty-page/cursor stop logic requires.
-const devToBase = "https://dev.to/api/articles/latest"
+// vars (not consts) so tests can point them at an httptest server.
+var (
+	// /latest is strictly newest-first, which the scheduler's empty-page/
+	// cursor stop logic requires (the default /api/articles is popularity-
+	// ordered and starves the incremental window).
+	devToBase = "https://dev.to/api/articles/latest"
+	// single-article endpoint, used for body_markdown (content-in-payload).
+	devToArticleBase = "https://dev.to/api/articles"
+)
 
 type DevTo struct {
-	client    *http.Client
-	userAgent string
+	client      *http.Client
+	userAgent   string
+	fetchBody   bool
+	bodyLimiter *rate.Limiter
 }
 
 func NewDevTo(cfg config.CrawlerConfig) *DevTo {
 	return &DevTo{
 		client:    &http.Client{Timeout: 15 * time.Second},
 		userAgent: resolveUserAgent(cfg.UserAgent),
+		fetchBody: cfg.FetchBody == nil || *cfg.FetchBody,
+		// 2 req/s keeps per-article body calls well under the API's
+		// throttling threshold even during catch-up bursts.
+		bodyLimiter: rate.NewLimiter(2, 2),
 	}
 }
 
@@ -32,12 +45,16 @@ func (d *DevTo) Name() string { return "devto" }
 
 // devToArticle mirrors the DEV.to article API. TagList is unstable: it can be a
 // JSON string array OR an array of objects, so we keep it raw and parse later.
+// The list endpoint does not return body fields today, but if it starts to we
+// use body_markdown directly instead of the per-article call.
 type devToArticle struct {
-	URL         string          `json:"url"`
-	Title       string          `json:"title"`
-	PublishedAt time.Time       `json:"published_at"`
-	TagList     json.RawMessage `json:"tag_list"`
-	User        struct {
+	ID           int             `json:"id"`
+	URL          string          `json:"url"`
+	Title        string          `json:"title"`
+	PublishedAt  time.Time       `json:"published_at"`
+	TagList      json.RawMessage `json:"tag_list"`
+	BodyMarkdown string          `json:"body_markdown"`
+	User         struct {
 		Name string `json:"name"`
 	} `json:"user"`
 }
@@ -175,6 +192,14 @@ func (d *DevTo) FetchSince(ctx context.Context, page int, perPage int, since tim
 			// page is sorted newest-first; older items beyond window are skipped
 			continue
 		}
+		// content-in-payload: body_markdown from the list response when the
+		// API provides it, else one per-article call. Empty body (blocked/
+		// deleted posts) leaves ContentMD unset so the processor falls back
+		// to its web-fetch path.
+		content := it.BodyMarkdown
+		if content == "" && d.fetchBody && it.ID > 0 {
+			content = d.fetchBodyMarkdown(ctx, it.ID)
+		}
 		payload, _ := json.Marshal(it)
 		out = append(out, ArticleRaw{
 			URL:        it.URL,
@@ -184,6 +209,7 @@ func (d *DevTo) FetchSince(ctx context.Context, page int, perPage int, since tim
 			Tags:       parseTags(it.TagList),
 			SourceType: "devto",
 			Payload:    payload,
+			ContentMD:  content,
 		})
 		if oldest.IsZero() || it.PublishedAt.Before(oldest) {
 			oldest = it.PublishedAt
@@ -191,4 +217,56 @@ func (d *DevTo) FetchSince(ctx context.Context, page int, perPage int, since tim
 	}
 	empty := len(out) == 0
 	return out, oldest, empty, nil
+}
+
+// fetchBodyMarkdown pulls the canonical markdown for one article via the
+// single-article endpoint. Best-effort: failures return "" (the processor's
+// web-fetch path covers those) and are rate-limited to 2 req/s so catch-up
+// bursts stay friendly to the API.
+func (d *DevTo) fetchBodyMarkdown(ctx context.Context, id int) string {
+	for attempt := 0; attempt < maxDevToRetries; attempt++ {
+		if err := d.bodyLimiter.Wait(ctx); err != nil {
+			return "" // ctx cancelled
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			fmt.Sprintf("%s/%d", devToArticleBase, id), nil)
+		if err != nil {
+			return ""
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", d.userAgent)
+
+		resp, err := d.client.Do(req)
+		if err != nil {
+			if !sleepBackoff(ctx, backoffSeconds(attempt)) {
+				return ""
+			}
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
+			var body struct {
+				BodyMarkdown string `json:"body_markdown"`
+			}
+			decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+			resp.Body.Close()
+			if decodeErr != nil {
+				return ""
+			}
+			return body.BodyMarkdown
+		}
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		resp.Body.Close()
+		// 404/403 etc: the article is gone or blocked on the API too — no
+		// point retrying; let the processor's web path make the final call.
+		if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return ""
+		}
+		if retryAfter <= 0 {
+			retryAfter = backoffSeconds(attempt)
+		}
+		if !sleepBackoff(ctx, retryAfter) {
+			return ""
+		}
+	}
+	return ""
 }

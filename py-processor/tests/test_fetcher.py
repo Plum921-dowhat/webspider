@@ -56,6 +56,39 @@ def test_token_bucket_penalise_drains_and_defers():
     assert b._last > 0  # refill clock pushed into the future via monotonic offset
 
 
+def test_token_bucket_penalise_recovery_is_bounded():
+    # regression: the old acquire() applied negative elapsed, accumulating
+    # token debt so recovery took ~3x the penalty even single-threaded
+    import time as _time
+    b = TokenBucket(rate=50.0, capacity=50.0)
+    b.penalise(1.0)
+    start = _time.monotonic()
+    b.acquire(1)
+    took = _time.monotonic() - start
+    assert took < 2.5, f"1s penalty took {took:.2f}s to recover (debt bug?)"
+
+
+def test_token_bucket_no_negative_tokens_under_concurrent_penalise():
+    # regression: 8 threads waiting through a penalty must not compound token
+    # debt; recovery stays ~penalty duration instead of stalling for hours
+    import time as _time
+    import threading as _threading
+
+    b = TokenBucket(rate=1.0, capacity=1.0)
+    b.penalise(2.0)
+    done = []
+    threads = [_threading.Thread(target=lambda: (b.acquire(1), done.append(1)))
+               for _ in range(8)]
+    start = _time.monotonic()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    took = _time.monotonic() - start
+    assert len(done) == 8, "threads did not finish"
+    assert took < 12.0, f"8-thread recovery after 2s penalty took {took:.1f}s (debt bug?)"
+
+
 def test_fetch_many_splits_permanent_from_success(monkeypatch):
     import fetcher as f
 
